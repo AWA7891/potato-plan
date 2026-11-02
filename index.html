@@ -568,7 +568,7 @@ window.__POTATO_DATA__ = {
       if (cloudTime > localTime + 1000) {
         data = res.data;
         data._localUpdatedAt = cloudTime;
-        if (!editMode) render();
+        render();
         toast('已自动同步云端最新数据');
       } else if (localTime > cloudTime + 1000) {
         await pushNow();
@@ -1083,33 +1083,48 @@ window.__POTATO_DATA__ = {
   }
 
   async function init(){
-    data = clone(window.__POTATO_DATA__);
+  // 1. 先用本地兜底数据占位
+  data = clone(window.__POTATO_DATA__);
 
-    var params = new URLSearchParams(location.search);
-    var wantEdit = params.get('edit') === '1';
-    if(wantEdit){
-      try{ history.replaceState(null, '', location.pathname + location.hash); }catch(e){}
-    }
+  var params = new URLSearchParams(location.search);
+  var wantEdit = params.get('edit') === '1';
+  if(wantEdit){
+    try{ history.replaceState(null, '', location.pathname + location.hash); }catch(e){}
+  }
 
-    render();
+  // 2. 关键修改：先去云端拉取最新数据！
+  if(supabase) {
+     setSyncStatus('syncing');
+     await pullFromCloud(); 
+     setSyncStatus('synced');
+  }
 
-    if(wantEdit){
-      var ok = await isAuthed();
-      if(ok){
+  // 3. 数据拉取完了，再去判断要不要进编辑模式
+  if(wantEdit){
+    var ok = await isAuthed();
+    if(ok){
+      editMode = true;
+    }else{
+      render(); // 没登录先显示普通页面
+      showLogin(function(){
         editMode = true;
         unsubscribeRealtime();
         render();
-      }else{
-        showLogin(function(){
-          editMode = true;
-          unsubscribeRealtime();
-          render();
-        });
-      }
+      });
+      subscribeRealtime();
+      return; 
     }
-
-    await initCloud();
   }
+
+  // 4. 最终渲染（此时 data 已经是最新的云端数据了）
+  render(); 
+  
+  if(editMode){
+    unsubscribeRealtime();
+  } else {
+    subscribeRealtime();
+  }
+}
 
   init();
 })();
